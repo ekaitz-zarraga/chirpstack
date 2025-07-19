@@ -5,6 +5,8 @@ use async_trait::async_trait;
 
 use super::{Handler, Request, Response};
 
+use rquickjs::CatchResultExt;
+
 pub struct Plugin {
     script: String,
     id: String,
@@ -18,9 +20,12 @@ impl Plugin {
         let script = fs::read_to_string(file_path).context("Read ADR plugin")?;
 
         let (id, name) = ctx.with::<_, Result<(String, String)>>(|ctx| {
-            let m = rquickjs::Module::declare(ctx, "script", script.clone())
+            let m = rquickjs::Module::declare(ctx.clone(), "script", script.clone())
                 .context("Declare script")?;
-            let (m, m_promise) = m.eval().context("Evaluate script")?;
+            let (m, m_promise) = m
+                .eval()
+                .catch(&ctx)
+                .map_err(|e| anyhow!("JS error: {}", e).context("Evaluate script"))?;
             () = m_promise.finish()?;
             let id_func: rquickjs::Function = m.get("id").context("Get id function")?;
             let name_func: rquickjs::Function = m.get("name").context("Get name function")?;
@@ -54,7 +59,10 @@ impl Handler for Plugin {
         ctx.with::<_, Result<Response>>(|ctx| {
             let m = rquickjs::Module::declare(ctx.clone(), "script", self.script.clone())
                 .context("Declare script")?;
-            let (m, m_promise) = m.eval().context("Evaluate script")?;
+            let (m, m_promise) = m
+                .eval()
+                .catch(&ctx)
+                .map_err(|e| anyhow!("JS error: {}", e).context("Evaluate script"))?;
             () = m_promise.finish()?;
             let func: rquickjs::Function = m.get("handle").context("Get handle function")?;
 
